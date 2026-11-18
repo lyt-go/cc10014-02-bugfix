@@ -74,6 +74,10 @@ class OdsLayerService:
         return store.table_rows(table_name)
 
     def get_batches_for_table(self, table_name: str) -> list[dict[str, Any]]:
+        """跨模块读取入库批次清单：按该贴源表的「创建批次」回查原始入库批次。
+
+        同一批次号即使存在重复登记，也只返回一份批次记录，保证详情页不重复显示。
+        """
         ods = self.get_by_table_name(table_name)
         if not ods:
             return []
@@ -82,5 +86,17 @@ class OdsLayerService:
             return []
         from app.services.raw_ingest import RawIngestService
         ri = RawIngestService()
-        batch = ri.get_by_batch_no(batch_no)
-        return [batch] if batch else []
+        # 优先走入库批次清单（已按批次号去重），保证与原始入库列表页口径一致
+        manifest = {item.get("批次编号"): item for item in ri.get_ingest_manifest()}
+        item = manifest.get(batch_no)
+        if item is not None:
+            batch = ri.get_by_batch_no(batch_no)
+            return [batch] if batch else []
+        # 清单里没有（如未确认入库的历史数据）时再兜底直查，并自行去重
+        seen: set[str] = set()
+        batches: list[dict[str, Any]] = []
+        for row in store.rows("raw_ingest"):
+            if row.get("批次编号") == batch_no and batch_no not in seen:
+                seen.add(batch_no)
+                batches.append(row)
+        return batches

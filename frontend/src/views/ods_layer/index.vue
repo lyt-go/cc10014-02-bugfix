@@ -26,6 +26,7 @@
       <button class="btn" data-testid="query" type="submit">查询</button>
       <button class="btn ghost" data-testid="reset" type="button" @click="resetFilters">重置条件</button>
     </form>
+    <p v-if="errorMessage" class="error-message" data-testid="error-message">{{ errorMessage }}</p>
 
     <table class="data-table">
       <thead>
@@ -35,9 +36,9 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="row in rows" :key="String(row.id)" :data-testid="`row-${row.id}`" :data-status="String(row.status)">
+        <tr v-for="row in rows" :key="String(row.id)" :data-testid="`row-${row.id}`" :data-status="String(row.status)" @click="openDetail(row)">
           <td v-for="column in columns" :key="column">{{ row[column] ?? '—' }}</td>
-          <td class="row-actions">
+          <td class="row-actions" @click.stop>
             <button
               v-for="action in actions"
               :key="action"
@@ -73,13 +74,16 @@
     </div>
 
     <div v-if="selectedRow" class="detail-panel" data-testid="detail-panel">
-      <h3>关联信息：{{ selectedRow['表名称'] }}</h3>
+      <div class="detail-head">
+        <h3>关联信息：{{ selectedRow['表名称'] }}</h3>
+        <button class="btn ghost" type="button" data-testid="close-detail" @click="selectedRow = null">关闭</button>
+      </div>
       <div class="detail-section">
         <h4>来源入库批次</h4>
         <table class="data-table small">
           <thead><tr><th>批次编号</th><th>来源系统</th><th>文件格式</th><th>原始行数</th><th>入库时间</th></tr></thead>
           <tbody>
-            <tr v-for="b in relatedBatches" :key="b['批次编号']"><td>{{ b['批次编号'] }}</td><td>{{ b['来源系统'] }}</td><td>{{ b['文件格式'] }}</td><td>{{ b['原始行数'] }}</td><td>{{ b['入库时间'] }}</td></tr>
+            <tr v-for="b in relatedBatches" :key="String(b['批次编号'])"><td>{{ b['批次编号'] }}</td><td>{{ b['来源系统'] }}</td><td>{{ b['文件格式'] }}</td><td>{{ b['原始行数'] }}</td><td>{{ b['入库时间'] }}</td></tr>
             <tr v-if="!relatedBatches.length"><td colspan="5" class="empty-state">无关联批次</td></tr>
           </tbody>
         </table>
@@ -119,11 +123,40 @@ const filterFields = columns.slice(0, 3)
 const showCreate = ref(false)
 const creating = ref(false)
 const createValues = ref<Record<string, string>>({})
+// 详情面板：关联入库批次与模拟表数据预览
+const selectedRow = ref<Row | null>(null)
+const relatedBatches = ref<Row[]>([])
+const tableDataPreview = ref<Row[]>([])
+const tableDataColumns = ref<string[]>([])
 const stats = computed(() => [
   { label: metricNames[0], value: total.value },
   { label: metricNames[1], value: rows.value.filter((row) => row.status === statuses[1]).length },
   { label: metricNames[2], value: rows.value.filter((row) => row.status === statuses[statuses.length - 1]).length },
 ])
+
+async function openDetail(row: Row) {
+  selectedRow.value = row
+  errorMessage.value = ''
+  try {
+    const [batchRes, dataRes] = await Promise.all([
+      request(`${ENDPOINT}/${row.id}/batches`),
+      request(`${ENDPOINT}/${row.id}/data`),
+    ])
+    if (!batchRes.ok || !dataRes.ok) throw new Error('关联信息读取失败')
+    const batchPayload = await batchRes.json()
+    const dataPayload = await dataRes.json()
+    relatedBatches.value = batchPayload.items ?? []
+    tableDataPreview.value = (dataPayload.items ?? []).slice(0, 5)
+    tableDataColumns.value = tableDataPreview.value.length
+      ? Object.keys(tableDataPreview.value[0] as Record<string, unknown>)
+      : []
+  } catch (error) {
+    relatedBatches.value = []
+    tableDataPreview.value = []
+    tableDataColumns.value = []
+    errorMessage.value = error instanceof Error ? error.message : '关联信息读取失败'
+  }
+}
 
 function resetFilters() {
   filters.value = {}

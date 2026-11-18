@@ -617,3 +617,58 @@ test('概览汇总', async ({ page }) => {
   await expect(page.locator('.stat-value').nth(1)).toBeVisible()
   // 验证概览页加载正常即可，不硬编码精确计数（取决于各模块 E2E 登记成功数）
 })
+
+test('原始入库：重复确认只生成一份批次/映射/贴源表，清单保持唯一引用', async ({ page }) => {
+  test.setTimeout(300_000)
+  const browserErrors: string[] = []
+  page.on('pageerror', e => browserErrors.push(e.message))
+  page.on('response', r => { if (r.url().includes('/api/') && r.status() >= 400) browserErrors.push(`${r.status()} ${r.url()}`) })
+
+  const batchNo = `RAW-DUP-${Date.now()}`
+  await page.goto('/raw_ingest')
+  await expect(page.locator('.timeline-bar').first()).toBeVisible({ timeout: 10000 })
+
+  // 登记一个待确认入库批次
+  await page.getByTestId('open-create').click()
+  await expect(page.getByTestId('create-modal')).toBeVisible()
+  await page.locator('.create-field input').nth(0).fill(batchNo)
+  await page.locator('.create-field input').nth(1).fill('订单系统')
+  await page.locator('.create-field input').nth(2).fill('CSV')
+  await page.getByTestId('submit-create').click()
+  await expect(page.getByTestId('create-modal')).toHaveCount(0)
+
+  // 入库批次清单中新增唯一一条批次记录，且尚未创建贴源表
+  const manifestRow = page.locator('[data-testid^="manifest-row-"]').filter({ hasText: batchNo })
+  await expect(manifestRow).toHaveCount(1)
+  await expect(manifestRow).toContainText('草稿')
+  await expect(manifestRow).toContainText('—')
+
+  // 连续点击两次确认入库（前端连点防护 + 后端幂等/串行双重保障）
+  const confirmBtn = page.getByTestId(/action-\d+-确认入库/).last()
+  await confirmBtn.click()
+  await confirmBtn.click().catch(() => undefined)
+
+  // 页面展示已入库批次及唯一 ODS 表引用
+  await expect(page.locator('[data-testid^="manifest-row-"]').filter({ hasText: batchNo })).toContainText('已入库')
+  await expect(page.locator('[data-testid^="manifest-row-"]').filter({ hasText: batchNo })).toContainText('ods_orders')
+  await expect(page.locator('[data-testid^="manifest-row-"]').filter({ hasText: batchNo })).toHaveCount(1)
+
+  // 刷新页面后结果保持：仍是一份批次记录、一份映射、一张贴源表
+  await page.reload()
+  await expect(page.locator('.timeline-bar').first()).toBeVisible({ timeout: 10000 })
+  const refreshedRow = page.locator('[data-testid^="manifest-row-"]').filter({ hasText: batchNo })
+  await expect(refreshedRow).toHaveCount(1)
+  await expect(refreshedRow).toContainText('ods_orders')
+
+  // 从入库批次清单看板进入贴源层管理详情页核对确认入库结果
+  await page.goto('/ods_layer')
+  const odsRow = page.locator('tbody tr').filter({ hasText: 'ods_orders' }).first()
+  await expect(odsRow).toBeVisible()
+  await odsRow.click()
+  const detail = page.getByTestId('detail-panel')
+  await expect(detail).toBeVisible()
+  // 详情页关联批次不重复显示，只出现该批次一次
+  await expect(detail.getByRole('cell', { name: batchNo, exact: true })).toHaveCount(1)
+
+  expect(browserErrors).toEqual([])
+})

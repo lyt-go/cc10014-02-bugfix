@@ -4,10 +4,25 @@
 """
 from __future__ import annotations
 
+import threading
+from contextlib import contextmanager
+from copy import deepcopy
 from datetime import datetime
 from typing import Any
 
 from app.seed import SEED_ROWS
+
+# 需要纳入事务快照/回滚范围的可变业务状态（锁本身不参与快照）。
+_SNAPSHOT_ATTRS = (
+    "_tables",
+    "_table_data",
+    "_versions",
+    "_lineage_edges",
+    "_quality_results",
+    "_snapshot_data",
+    "_archive_records",
+    "_backfill_partitions",
+)
 
 
 class Store:
@@ -29,6 +44,39 @@ class Store:
         self._archive_records: list[dict[str, Any]] = []
         # 补数区间记录
         self._backfill_partitions: dict[str, list[dict[str, Any]]] = {}
+        # 仓库级互斥锁：保护所有列表/字典的并发读写
+        self._lock = threading.RLock()
+        # 业务条目级锁：例如同一入库批次的确认入库串行化，key 由服务层约定
+        self._entry_locks: dict[str, threading.Lock] = {}
+
+    @property
+    def lock(self) -> threading.RLock:
+        return self._lock
+
+    def lock_entry(self, key: str) -> threading.Lock:
+        """返回指定业务条目（如某批次号）的独占锁；不存在时创建。"""
+        with self._lock:
+            entry_lock = self._entry_locks.get(key)
+            if entry_lock is None:
+                entry_lock = threading.Lock()
+                self._entry_locks[key] = entry_lock
+            return entry_lock
+
+    @contextmanager
+    def transaction(self) -> Any:
+        """落库边界：进入时快照全部业务状态，块内抛异常则整体回滚。
+
+        确认入库与贴源表创建必须在同一事务内完成；任一步失败都不会留下
+        「批次已入库但贴源表/结构定义缺失」的半成品状态。
+        """
+        snapshot = {name: deepcopy(getattr(self, name)) for name in _SNAPSHOT_ATTRS}
+        try:
+            yield
+        except Exception:
+            with self._lock:
+                for name, state in snapshot.items():
+                    setattr(self, name, state)
+            raise
 
     def module_names(self) -> list[str]:
         return sorted(self._tables)

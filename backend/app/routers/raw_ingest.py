@@ -30,6 +30,13 @@ def list_entries() -> dict[str, Any]:
     return {"items": items}
 
 
+@router.get("/manifest")
+def get_manifest() -> dict[str, Any]:
+    """入库批次清单：每个入库原始文件一条批次记录，附唯一贴源表引用。"""
+    items = service.get_ingest_manifest()
+    return {"items": items, "total": len(items)}
+
+
 @router.get("/export")
 def export_entries() -> StreamingResponse:
     items = service.get_timeline()
@@ -58,7 +65,8 @@ def get_entry(entry_id: int) -> dict:
 def create_entry(payload: EntryPayload) -> ActionResult:
     entry_or_none, missing = service.create_entry(payload.values)
     if missing:
-        return ActionResult(ok=False, message=f"缺少必填字段：{'、'.join(missing)}")
+        # missing 同时承载必填缺失与重复批次等可读原因
+        return ActionResult(ok=False, message="；".join(missing))
     return ActionResult(ok=True, message="入库批次已登记", entry=entry_or_none)
 
 

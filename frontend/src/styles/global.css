@@ -33,6 +33,16 @@ body { margin: 0; background: #f6f8fb; color: #1f2937; }
 .link { border: none; background: none; color: var(--brand); cursor: pointer; padding: 0; }
 .page-foot { display: flex; justify-content: space-between; margin-top: 8px; font-size: 12px; color: var(--muted); }
 .error-text { color: #b42318; }
+.error-message { color: #b42318; background: #fef3f2; border: 1px solid #fecdca; border-radius: 6px; padding: 8px 10px; font-size: 13px; }
+.detail-panel { margin-top: 14px; background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+.detail-head { display: flex; justify-content: space-between; align-items: center; }
+.detail-section { margin-top: 10px; }
+.detail-section h4 { margin: 0 0 6px; font-size: 13px; color: var(--muted); }
+.data-table.small th, .data-table.small td { padding: 6px 8px; font-size: 12px; }
+.manifest-section { margin-top: 16px; }
+.manifest-section h3 { margin: 0 0 8px; font-size: 15px; }
+.timeline-actions { display: flex; gap: 6px; margin-left: 8px; flex-shrink: 0; }
+.btn[disabled] { opacity: 0.6; cursor: not-allowed; }
 .modal-backdrop { position: fixed; inset: 0; background: rgb(15 23 42 / 35%); display: grid; place-items: center; padding: 20px; z-index: 20; }
 .modal { width: min(560px, 100%); max-height: 90vh; overflow: auto; background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 20px 50px rgb(15 23 42 / 20%); }
 .create-field { display: block; margin-bottom: 10px; }
